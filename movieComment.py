@@ -1,0 +1,103 @@
+import requests,json,time,re,datetime
+import pandas as pd
+import threading
+
+#请求评论api接口
+def requestApi(url):  
+    headers = {
+        'accept': '*/*',
+        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1',
+    }
+
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        return r.text
+    
+    except requests.HTTPError as e:
+        print(e) 
+    except requests.RequestException as e:
+        print(e)
+    except:
+        print("出错了")
+
+#解析接口返回数据        
+def getData(html):    
+    json_data = json.loads(html)['cmts']
+    comments = []
+    #print("\n\n\njson_data:",json_data,"\n\n")
+    #解析数据并存入数组
+    try:
+        for item in json_data:
+            comment = []
+            comment.append(item['nickName'])
+            comment.append(item['cityName'] if 'cityName' in item else '')
+            comment.append(item['content'].strip().replace('\n', ' '))
+            comment.append(item['score'])
+            comment.append(item['startTime'])
+            comments.append(comment)
+        return comments
+    
+    except Exception as e:
+        print(comment)
+        print(e)
+
+
+#保存数据，写入excel        
+def saveData(comments,movie):
+
+    filename = './'+movie+'fulian_comments.csv'
+    
+    dataObject = pd.DataFrame(comments)
+    dataObject.to_csv(filename, mode='a', index=False, sep=',', header=False,encoding='utf-8-sig')
+	
+      
+def task(argv):
+	movie=argv[0]
+	movie_ID=argv[1]
+	end_time=argv[2]
+	start_time = datetime.datetime.now().strftime('%Y-%m-%d  %H:%M:%S')
+
+    while start_time > end_time:
+        url = 'http://m.maoyan.com/mmdb/comments/movie/' + movie_ID + '.json?_v_=yes&offset=20&startTime='+start_time.replace('  ', '%20')
+        html = None
+        print(url)
+		#写入日志文件
+		file=open(movie+"_stracp.log","a+")
+		file.write(url)
+		file.write("\r\n")#windows换行符
+		
+        try:
+            html = requestApi(url)
+        
+        except Exception as e:#如果有异常,暂停一会再爬
+            time.sleep(5)
+            html = requestApi(url).encode('UTF-8')
+
+        if html==None or html=='':
+            start_time = datetime.datetime.strptime(start_time, '%Y-%m-%d  %H:%M:%S') + datetime.timedelta(seconds=-1)
+            start_time = datetime.datetime.strftime(start_time, '%Y-%m-%d  %H:%M:%S')
+            continue
+        comments = getData(html)
+        #print(url)
+        start_time = comments[14][4] #获取每页中最后一条评论时间,每页有15条评论
+        # print(start_time)
+        
+        #最后一条评论时间减一秒，避免爬取重复数据
+        start_time = datetime.datetime.strptime(start_time, '%Y-%m-%d  %H:%M:%S') + datetime.timedelta(seconds=-1)
+        start_time = datetime.datetime.strftime(start_time, '%Y-%m-%d  %H:%M:%S')
+        
+        saveData(comments,movie)
+	
+if __name__ == '__main__':
+    # 电影上映时间
+	movies=[("Marvel",'248172','2012-05-05  00:00:00')]
+	
+	#多线程并发爬取多部影评
+	start_time=time.time()
+	for i in range(len(movies)):
+		t=threading.Thread(target=task,args=(movies[i],))
+		t.start()
+    
+    
+    
